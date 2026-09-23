@@ -66,11 +66,11 @@ export class LegalEngine {
     const wordCount = text.trim().split(/\s+/).length;
     const readingTime = Math.ceil(wordCount / 200);
     const clauses = this._extractClauses(text);
-    const risks = this._assessRisks(text);
     const metadata = this._extractMetadata(text);
-    const plainEnglish = this._generatePlainEnglish(clauses);
+    const risks = this._assessRisksDynamic(text, clauses);
+    const plainEnglish = this._generatePlainEnglishDynamic(clauses);
     const execSummary = this._generateExecutiveSummary(metadata, risks);
-    const checklist = this._generateChecklist();
+    const checklist = this._generateChecklistDynamic(risks);
     const attorneyPrep = this._generateAttorneyPrep(metadata, risks);
 
     return {
@@ -96,12 +96,12 @@ export class LegalEngine {
       readingTime: 0,
       metadata: { parties: "Unknown", law: "Not Specified", term: "Unspecified" },
       overallRiskScore: 0,
-      riskLevel: "Low",
+      riskLevel: "Low Risk",
       highRiskCount: 0,
       mediumRiskCount: 0,
       safeRiskCount: 0,
       risks: { score: 0, level: "Safe", high: [], medium: [], safe: [] },
-      execSummary: "Please paste a legal document or select a sample contract to analyze.",
+      execSummary: "Please paste a legal document or upload a PDF to run analysis.",
       plainEnglish: [],
       checklist: [],
       attorneyPrep: { title: "Attorney Prep Sheet", date: "", law: "", riskScore: 0, riskLevel: "", highRisks: [], questions: [] }
@@ -109,204 +109,236 @@ export class LegalEngine {
   }
 
   private _extractClauses(text: string) {
-    const rawSections = text.split(/(?=SECTION \d+|ARTICLE \d+|\d+\.\d+)/g);
+    const rawSections = text.split(/(?:\n\s*\n|SECTION \d+|ARTICLE \d+|\d+\.\d+)/g);
     const clauses: { id: string; title: string; content: string }[] = [];
 
     rawSections.forEach((sec, idx) => {
       const clean = sec.trim();
-      if (clean.length > 20) {
+      if (clean.length > 30) {
         const lines = clean.split('\n');
-        const title = lines[0].replace(/[:.]/g, '').trim();
+        const firstLine = lines[0].replace(/[:.]/g, '').trim();
+        const title = firstLine.length > 50 ? firstLine.substring(0, 50) + '...' : firstLine;
         clauses.push({
           id: `clause_${idx + 1}`,
-          title: title.length > 60 ? title.substring(0, 60) + '...' : title,
+          title: title || `Clause ${idx + 1}`,
           content: clean
         });
       }
     });
 
-    return clauses.length > 0 ? clauses : [{ id: "clause_1", title: "General Terms", content: text }];
+    if (clauses.length === 0) {
+      return [{ id: "clause_1", title: "General Terms", content: text }];
+    }
+
+    return clauses.slice(0, 15);
   }
 
   private _extractMetadata(text: string) {
-    let parties = "Not Explicitly Named";
-    let law = "Standard Applicable Jurisdiction";
-    let term = "Standard Agreement Duration";
+    let parties = "Extracted Legal Entities";
+    let law = "Standard Commercial Jurisdiction";
+    let term = "Standard Agreement Term";
 
-    if (text.match(/between\s+([^,.\n]+)\s+and\s+([^,.\n]+)/i)) {
-      const match = text.match(/between\s+([^,.\n]+)\s+and\s+([^,.\n]+)/i);
-      if (match) parties = `${match[1].trim()} & ${match[2].trim()}`;
+    // Extract parties
+    const partyMatch = text.match(/(?:between|by and between)\s+([^\n,\.]{3,40})\s+and\s+([^\n,\.]{3,40})/i);
+    if (partyMatch) {
+      parties = `${partyMatch[1].trim()} & ${partyMatch[2].trim()}`;
     }
 
-    if (text.match(/State of ([A-Za-z\s]+)/i)) {
-      const match = text.match(/State of ([A-Za-z\s]+)/i);
-      if (match) law = `State of ${match[1].trim()}`;
+    // Extract governing law
+    const lawMatch = text.match(/(?:governed by|laws of|jurisdiction of)\s+([A-Za-z\s,]{3,35})(?:\.|\n|$)/i);
+    if (lawMatch) {
+      law = lawMatch[1].trim();
+    } else if (text.match(/State of ([A-Za-z\s]+)/i)) {
+      const stateMatch = text.match(/State of ([A-Za-z\s]+)/i);
+      if (stateMatch) law = `State of ${stateMatch[1].trim()}`;
     }
 
-    if (text.match(/(\d+)\s*(months|years|month|year)/i)) {
-      const match = text.match(/(\d+)\s*(months|years|month|year)/i);
-      if (match) term = match[0];
+    // Extract term/duration
+    const termMatch = text.match(/(\d+|\b(?:one|two|three|four|five)\b)\s*(?:months|years|month|year)\s*(?:term|period)?/i);
+    if (termMatch) {
+      term = termMatch[0].trim();
     }
 
     return { parties, law, term };
   }
 
-  private _assessRisks(text: string) {
+  private _assessRisksDynamic(text: string, clauses: { title: string; content: string }[]) {
     const high: RiskItem[] = [];
     const medium: RiskItem[] = [];
     const safe: RiskItem[] = [];
 
-    const lower = text.toLowerCase();
+    const textLower = text.toLowerCase();
 
-    if (lower.includes("1 month") || lower.includes("one (1) month") || (lower.includes("limitation of liability") && lower.includes("total fees paid"))) {
-      high.push({
+    // 1. Liability Cap Risk
+    if (textLower.includes("limitation of liability") || textLower.includes("liability cap") || textLower.includes("aggregate liability")) {
+      const foundClause = clauses.find(c => c.content.toLowerCase().includes("liability")) || clauses[0];
+      const isExtreme = textLower.includes("1 month") || textLower.includes("total fees paid") || textLower.includes("$0");
+      
+      const item: RiskItem = {
         id: "r_liability",
         category: "Limitation of Liability",
-        title: "Severe Cap on Liability & One-Sided Protection",
-        snippet: "PROVIDER'S TOTAL AGGREGATE LIABILITY... SHALL BE LIMITED TO THE TOTAL FEES PAID BY CUSTOMER IN THE PRIOR ONE (1) MONTH.",
-        explanation: "The provider limits their financial liability to only 1 month of service fees, while you remain fully exposed to third-party claims.",
-        alternative: "Negotiate liability cap to at least 12 months of fees or $1,000,000, with mutual carve-outs for data breaches."
-      });
+        title: isExtreme ? "Severe Cap on Liability & One-Sided Protection" : "Aggressive Liability Restriction",
+        snippet: foundClause ? foundClause.content.substring(0, 180) + "..." : "Total aggregate liability is strictly limited.",
+        explanation: "The liability clause restricts financial recourse in the event of breach, data loss, or non-performance.",
+        alternative: "Negotiate liability cap to at least 12 months of contract fees with carve-outs for confidentiality & gross negligence."
+      };
+      if (isExtreme) high.push(item);
+      else medium.push(item);
     }
 
-    if (lower.includes("automatically renew") || lower.includes("auto-renew")) {
+    // 2. Auto-Renewal / Termination Notice
+    if (textLower.includes("auto") && (textLower.includes("renew") || textLower.includes("renewal"))) {
+      const foundClause = clauses.find(c => c.content.toLowerCase().includes("renew")) || clauses[0];
       high.push({
         id: "r_auto_renew",
         category: "Automatic Renewal",
-        title: "Strict 90-Day Auto-Renewal Notice Window",
-        snippet: "automatically renew for successive 12-month periods unless Customer provides written notice... at least ninety (90) days prior...",
-        explanation: "If you miss the 90-day cancellation deadline, you are legally locked into another full year of payments.",
-        alternative: "Reduce notice requirement to 30 days and add automated calendar reminders."
+        title: "Strict Automatic Renewal Notice Requirement",
+        snippet: foundClause ? foundClause.content.substring(0, 180) + "..." : "Agreement automatically renews unless advance notice is provided.",
+        explanation: "Automatic renewal lock-in occurs unless cancellation notice is served within a strict advance window.",
+        alternative: "Require a 30-day cancellation window and mandatory electronic reminder prior to renewal."
       });
     }
 
-    if (lower.includes("non-compete covenant") || lower.includes("twenty-four (24) months")) {
+    // 3. Non-Compete / Restrictive Covenants
+    if (textLower.includes("non-compete") || textLower.includes("covenant not to compete") || textLower.includes("restrictive covenant")) {
+      const foundClause = clauses.find(c => c.content.toLowerCase().includes("compete")) || clauses[0];
       high.push({
         id: "r_non_compete",
         category: "Restrictive Covenants",
-        title: "Overly Broad 24-Month Global Non-Compete",
-        snippet: "Executive shall not directly or indirectly engage in... any business offering products competing... anywhere in North America, Europe, or Asia.",
-        explanation: "This restricts your ability to work in your industry across three entire continents for 2 full years after leaving.",
-        alternative: "Narrow scope to direct competitors within a 25-mile radius for max 6 months, or strike out completely."
+        title: "Broad Post-Termination Non-Compete Restriction",
+        snippet: foundClause ? foundClause.content.substring(0, 180) + "..." : "Restricts engaging in competing business activities post-termination.",
+        explanation: "This clause limits your business or employment operations across geographical markets.",
+        alternative: "Narrow non-compete scope strictly to direct competitors within immediate zip code for maximum 6 months."
       });
     }
 
-    if (lower.includes("entire security deposit") || lower.includes("forfeiture")) {
-      high.push({
-        id: "r_deposit",
-        category: "Security Deposit & Forfeiture",
-        title: "Full Deposit Forfeiture for Minor 5-Day Delay",
-        snippet: "defaults on rent payment by more than five (5) days, Landlord may retain the ENTIRE Security Deposit as liquidated damages...",
-        explanation: "A slight delay in rent payment allows the landlord to permanently confiscate your entire $42,000 security deposit.",
-        alternative: "Require written notice and a 15-day cure period before any security deposit offset can occur."
-      });
-    }
-
-    if (lower.includes("machine learning model training")) {
+    // 4. Data Rights / AI Model Training
+    if (textLower.includes("machine learning") || textLower.includes("ai model") || textLower.includes("training") || textLower.includes("irrevocable license")) {
+      const foundClause = clauses.find(c => c.content.toLowerCase().includes("data") || c.content.toLowerCase().includes("license")) || clauses[0];
       high.push({
         id: "r_ai_data",
         category: "Data Rights & AI Training",
-        title: "Irrevocable License to Train AI Models on Your Data",
-        snippet: "grants Provider a perpetual, irrevocable... license to use anonymized Customer Data for machine learning model training...",
-        explanation: "Your proprietary company data will be used permanently to train commercial AI models.",
-        alternative: "Insert explicit opt-out clause forbidding vendor from using customer data for external model training."
+        title: "Broad License & Data Processing Authorization",
+        snippet: foundClause ? foundClause.content.substring(0, 180) + "..." : "Grants permission to use customer data for algorithm training.",
+        explanation: "Your data may be utilized to train commercial machine learning models.",
+        alternative: "Include explicit Data Processing Addendum forbidding vendor from training AI on customer proprietary data."
       });
     }
 
-    if (lower.includes("increase annual subscription fees by up to 15%")) {
+    // 5. Price Escalation / Fees
+    if (textLower.includes("price increase") || textLower.includes("fee escalation") || textLower.includes("increase annual")) {
+      const foundClause = clauses.find(c => c.content.toLowerCase().includes("fee") || c.content.toLowerCase().includes("increase")) || clauses[0];
       medium.push({
         id: "r_price_escalation",
         category: "Pricing & Fee Escalation",
-        title: "Uncontrolled 15% Annual Price Escalation",
-        snippet: "Provider reserves the right to increase annual subscription fees by up to 15% without prior Customer consent.",
-        explanation: "Your annual software costs could compound significantly upon every renewal term.",
-        alternative: "Cap price increases to CPI index or maximum 3% to 5% per year."
+        title: "Uncapped Fee Escalation Authority",
+        snippet: foundClause ? foundClause.content.substring(0, 180) + "..." : "Reserves right to adjust fees upon renewal.",
+        explanation: "Annual subscription or service fees may increase automatically at renewal without prior consent.",
+        alternative: "Cap annual price increases to consumer price index (CPI) or maximum 3% per annum."
       });
     }
 
-    if (lower.includes("confidential information") || lower.includes("standard of care")) {
+    // 6. Confidentiality (Safe/Standard)
+    if (textLower.includes("confidential") || textLower.includes("non-disclosure")) {
+      const foundClause = clauses.find(c => c.content.toLowerCase().includes("confidential")) || clauses[0];
       safe.push({
         id: "r_confidentiality",
         category: "Confidentiality",
-        title: "Mutual Confidentiality Protection",
-        snippet: "Receiving Party agrees to hold Confidential Information in strict confidence and exercise at least a reasonable degree of care...",
-        explanation: "Standard, balanced protection ensuring both parties keep proprietary information secure."
+        title: "Standard Mutual Confidentiality Safeguards",
+        snippet: foundClause ? foundClause.content.substring(0, 180) + "..." : "Both parties agree to hold confidential information in confidence.",
+        explanation: "Standard protection ensuring proprietary data and trade secrets remain protected."
       });
     }
 
-    let score = (high.length * 28) + (medium.length * 14);
+    // Dynamic scoring calculation
+    let score = (high.length * 25) + (medium.length * 15) + 10;
     if (score > 95) score = 95;
-    if (score === 0 && text.length > 50) score = 15;
+    if (high.length === 0 && medium.length === 0) score = 18;
 
     let level = "Low Risk";
-    if (score > 65) level = "Critical High Risk";
-    else if (score > 35) level = "Moderate Caution";
+    if (score > 60) level = "Critical High Risk";
+    else if (score > 30) level = "Moderate Caution";
 
     return { score, level, high, medium, safe };
   }
 
   private _generateExecutiveSummary(metadata: { parties: string; law: string; term: string }, risks: { score: number; high: RiskItem[]; medium: RiskItem[] }) {
     const riskDesc = risks.score > 60 
-      ? "contains significant high-risk terms that heavily favor the drafting party" 
+      ? "contains critical high-risk terms that strongly favor the drafting party" 
       : risks.score > 30 
-        ? "contains moderate risk clauses requiring negotiation before signature" 
-        : "appears relatively balanced with standard commercial terms";
+        ? "contains moderate risk clauses requiring targeted negotiation" 
+        : "appears standard and relatively balanced across commercial terms";
 
-    return `This agreement between **${metadata.parties}** (${metadata.term}, governed by ${metadata.law}) ${riskDesc}. We identified **${risks.high.length} high-risk red flags** (including liability caps and restrictive terms) and **${risks.medium.length} medium-risk clauses**. Review the highlighted risk radar breakdown and suggested alternative clauses before signing.`;
+    return `This agreement involving **${metadata.parties}** (${metadata.term}, governed under ${metadata.law}) ${riskDesc}. Analysis identified **${risks.high.length} high-risk red flags** and **${risks.medium.length} medium-risk terms**. Review the simplified clause breakdown and attorney prep notes before executing.`;
   }
 
-  private _generatePlainEnglish(clauses: { title: string; content: string }[]) {
+  private _generatePlainEnglishDynamic(clauses: { title: string; content: string }[]): PlainEnglishItem[] {
     return clauses.map((c, i) => {
-      let plain = "This section sets out general rights and operational expectations for both parties.";
       const lower = c.content.toLowerCase();
+      let simplified = "⚡ Plain English: Sets standard rules and expectations for performance and party compliance.";
 
       if (lower.includes("auto") && lower.includes("renew")) {
-        plain = "⚡ Plain English: The contract automatically renews every year unless you tell them in writing 90 days before it ends.";
-      } else if (lower.includes("limitation of liability")) {
-        plain = "⚡ Plain English: If the company breaks the agreement or causes damages, the most you can collect from them is 1 month of service fees.";
-      } else if (lower.includes("non-compete")) {
-        plain = "⚡ Plain English: You are forbidden from working for any competitor anywhere in North America, Europe, or Asia for 2 years after leaving.";
-      } else if (lower.includes("security deposit")) {
-        plain = "⚡ Plain English: If you pay rent even 5 days late, the landlord can take your entire $42,000 security deposit.";
-      } else if (lower.includes("machine learning") || lower.includes("training")) {
-        plain = "⚡ Plain English: The vendor gets permission to use your private business data forever to train their AI technology.";
+        simplified = "⚡ Plain English: This contract will automatically renew every term unless you send written notice before the deadline.";
+      } else if (lower.includes("limitation of liability") || lower.includes("liability")) {
+        simplified = "⚡ Plain English: Limits the maximum damages you can claim if the other party breaches or fails to perform.";
+      } else if (lower.includes("non-compete") || lower.includes("compete")) {
+        simplified = "⚡ Plain English: Restricts you from operating or working in competing business sectors after this agreement ends.";
       } else if (lower.includes("confidential")) {
-        plain = "⚡ Plain English: Both companies must keep each other's secrets private for 3 years.";
+        simplified = "⚡ Plain English: Requires both parties to keep shared business secrets and non-public data confidential.";
+      } else if (lower.includes("indemni")) {
+        simplified = "⚡ Plain English: Specifies who pays legal fees and damages if a third party sues over this work.";
+      } else if (lower.includes("terminate") || lower.includes("cancellation")) {
+        simplified = "⚡ Plain English: Explains when and how either party can cancel or end this agreement early.";
       }
 
       return {
         number: i + 1,
         title: c.title,
         original: c.content.length > 220 ? c.content.substring(0, 220) + '...' : c.content,
-        simplified: plain
+        simplified
       };
     });
   }
 
-  private _generateChecklist(): ChecklistItem[] {
-    return [
-      { task: "Verify exact legal entity names for both parties", due: "Immediate", status: "Required" },
-      { task: "Set 90-day advance calendar reminder for contract cancellation/non-renewal", due: "Key Milestone", status: "Critical" },
-      { task: "Request liability cap adjustment from 1 month to 12 months", due: "Before Signature", status: "Negotiation" },
-      { task: "Confirm governing law jurisdiction aligns with local legal counsel", due: "Review", status: "Action Item" }
+  private _generateChecklistDynamic(risks: { high: RiskItem[]; medium: RiskItem[] }): ChecklistItem[] {
+    const items: ChecklistItem[] = [
+      { task: "Verify legal entity names and authorized signatory titles", due: "Immediate", status: "Required" }
     ];
+
+    if (risks.high.some(r => r.category.includes("Renewal"))) {
+      items.push({ task: "Set advance calendar reminder for contract cancellation window", due: "Key Milestone", status: "Critical" });
+    }
+    if (risks.high.some(r => r.category.includes("Liability"))) {
+      items.push({ task: "Submit proposed amendment expanding limitation of liability cap", due: "Before Signature", status: "Negotiation" });
+    }
+    if (risks.high.some(r => r.category.includes("Data"))) {
+      items.push({ task: "Attach Data Processing Addendum restricting AI training on user data", due: "Before Signature", status: "Critical" });
+    }
+
+    items.push({ task: "Confirm governing jurisdiction matches local counsel recommendations", due: "Review", status: "Action Item" });
+
+    return items;
   }
 
   private _generateAttorneyPrep(metadata: { parties: string; law: string }, risks: { score: number; level: string; high: RiskItem[] }): AttorneyPrepPack {
+    const questions = [
+      "Are the limitation of liability caps and indemnification obligations mutual and standard for our industry?",
+      "What notice period and formalities are required to terminate this agreement for convenience?",
+      "Does this contract contain enforceable restrictive covenants or non-solicitation liabilities?"
+    ];
+
+    if (risks.high.some(r => r.category.includes("Data"))) {
+      question: questions.unshift("How can we ensure customer proprietary data is explicitly excluded from AI model training?");
+    }
+
     return {
-      title: `Attorney Consultation Prep Sheet - ${metadata.parties}`,
+      title: `Attorney Consultation Sheet - ${metadata.parties}`,
       date: new Date().toLocaleDateString(),
       law: metadata.law,
       riskScore: risks.score,
       riskLevel: risks.level,
       highRisks: risks.high,
-      questions: [
-        "Is the 1-month limitation of liability cap legally enforceable in our jurisdiction, and how can we expand it to 12 months?",
-        "How can we modify the automatic renewal clause to require 30 days written notice instead of 90 days?",
-        "Can we strike out the broad global non-compete clause or carve out specific non-competing sub-sectors?",
-        "Are there statutory protections against full security deposit forfeiture for minor 5-day rent delays?",
-        "What specific data privacy addendum (DPA) should we attach to prevent vendor AI model training on customer data?"
-      ]
+      questions
     };
   }
 
@@ -315,48 +347,34 @@ export class LegalEngine {
     const textLower = contractText.toLowerCase();
 
     if (qLower.includes("cancel") || qLower.includes("terminate") || qLower.includes("end")) {
-      if (textLower.includes("auto") && textLower.includes("ninety (90) days")) {
+      if (textLower.includes("auto") && textLower.includes("renew")) {
         return {
-          answer: "You can prevent automatic renewal by providing written notice of non-renewal at least **90 days prior** to the expiration of the current term. However, the Customer has **no right to terminate for convenience** prior to the end of the full 36-month commitment period.",
-          citation: "SECTION 2.2 & SECTION 5.2 (Automatic Renewal & Termination)"
+          answer: "The document contains an **automatic renewal clause**. Written notice must be provided prior to the renewal notice deadline to prevent commitment rollover.",
+          citation: "Termination & Renewal Provision"
         };
       }
       return {
-        answer: "Termination rules depend on the specific section. Generally, written notice is required prior to renewal.",
+        answer: "Termination rules are outlined in the agreement. Usually written notice is required prior to cancellation.",
         citation: "General Termination Clause"
       };
     }
 
     if (qLower.includes("liability") || qLower.includes("sue") || qLower.includes("damage")) {
       return {
-        answer: "The provider's total maximum liability is capped at **1 month of paid subscription fees**. Furthermore, provider disclaims all indirect, consequential, or punitive damages.",
-        citation: "SECTION 4.2 (Limitation of Liability)"
+        answer: "Liability is subject to explicit caps defined in the contract. Review the Limitation of Liability section for specific maximum monetary caps.",
+        citation: "Limitation of Liability Provision"
       };
     }
 
-    if (qLower.includes("ai") || qLower.includes("data") || qLower.includes("train")) {
+    if (qLower.includes("data") || qLower.includes("ai") || qLower.includes("privacy")) {
       return {
-        answer: "While you retain title to Customer Data, the contract grants the provider a **perpetual, irrevocable worldwide license** to use anonymized Customer Data for machine learning model training and product development.",
-        citation: "SECTION 3.2 (Intellectual Property & Data License)"
-      };
-    }
-
-    if (qLower.includes("compete") || qLower.includes("work") || qLower.includes("job")) {
-      return {
-        answer: "The agreement imposes a strict **24-month post-employment non-compete** prohibiting work with competing businesses anywhere in North America, Europe, or Asia.",
-        citation: "SECTION 2.1 (Non-Competition Covenant)"
-      };
-    }
-
-    if (qLower.includes("deposit") || qLower.includes("late")) {
-      return {
-        answer: "If rent is defaulted by more than **5 days**, the landlord claims the right to confiscate the **entire $42,000 security deposit** as liquidated damages.",
-        citation: "SECTION 2.2 (Security Deposit & Forfeiture)"
+        answer: "Data ownership and usage rights govern how information submitted under this agreement may be processed.",
+        citation: "Data & Intellectual Property Clause"
       };
     }
 
     return {
-      answer: "Based on the provided legal document: This agreement sets out specific binding obligations regarding performance, fees, data usage, and liability.",
+      answer: "Based on the provided document: The contract establishes binding legal obligations regarding terms, performance, and dispute resolution.",
       citation: "Full Document Context"
     };
   }
@@ -373,19 +391,19 @@ export class LegalEngine {
           feature: "Overall Risk Score",
           valA: `${analysisA.overallRiskScore} / 100 (${analysisA.riskLevel})`,
           valB: `${analysisB.overallRiskScore} / 100 (${analysisB.riskLevel})`,
-          winner: analysisA.overallRiskScore < analysisB.overallRiskScore ? "Doc A (Safer)" : "Doc B (Safer)"
+          winner: analysisA.overallRiskScore <= analysisB.overallRiskScore ? "Doc A (Safer)" : "Doc B (Safer)"
         },
         {
-          feature: "Limitation of Liability Cap",
-          valA: analysisA.risks.high.some(r => r.id === 'r_liability') ? "1 Month Fees (Very Harsh)" : "Standard Cap",
-          valB: analysisB.risks.high.some(r => r.id === 'r_liability') ? "1 Month Fees (Very Harsh)" : "Standard Cap",
-          winner: analysisA.risks.high.some(r => r.id === 'r_liability') ? "Doc B" : "Doc A"
+          feature: "Identified High Risk Red Flags",
+          valA: `${analysisA.highRiskCount} Red Flags`,
+          valB: `${analysisB.highRiskCount} Red Flags`,
+          winner: analysisA.highRiskCount <= analysisB.highRiskCount ? "Doc A (Safer)" : "Doc B (Safer)"
         },
         {
-          feature: "Cancellation Notice Window",
-          valA: analysisA.risks.high.some(r => r.id === 'r_auto_renew') ? "90 Days Prior Notice" : "Standard Notice",
-          valB: analysisB.risks.high.some(r => r.id === 'r_auto_renew') ? "90 Days Prior Notice" : "Standard Notice",
-          winner: "Equally Strict"
+          feature: "Governing Law Jurisdiction",
+          valA: analysisA.metadata.law,
+          valB: analysisB.metadata.law,
+          winner: "Review Jurisdictions"
         }
       ]
     };
