@@ -1,5 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+function sanitizePdfText(raw: string): string {
+  if (!raw) return '';
+  
+  // 1. Remove PDF internal binary structure commands and metadata tags
+  let cleaned = raw
+    .replace(/%PDF-[\d.]+|endobj|\bobj\b|\/Catalog|\/Pages|\/Page|\/Parent|\/MediaBox|\/Resources|\/Font|\/Helvetica|\/Type\w*|\/Subtype|\/Type1|\/BaseFont|\/Length|\/Contents|\bstream\b|\bendstream\b|\bxref\b|\btrailer\b|\bstartxref\b|%%EOF/gi, ' ')
+    .replace(/\b\d+\s+\d+\s+Td\b|\b\d+\s+Tf\b|\bTj\b|\bTd\b|\bTf\b|\bBT\b|\bET\b/gi, ' ')
+    .replace(/\b\d{10}\s+\d{5}\s+[fn]\b/gi, ' ')
+    .replace(/[()<>{}\[\]\/]/g, ' ');
+
+  // 2. Filter out single garbage tokens or PDF operator keywords
+  const words = cleaned.split(/\s+/).filter(w => {
+    const lower = w.toLowerCase();
+    return (
+      w.length > 1 &&
+      !lower.startsWith('/') &&
+      !['obj', 'endobj', 'stream', 'endstream', 'xref', 'trailer', 'startxref', 'td', 'tj', 'tf', 'bt', 'et', 'r', 'n'].includes(lower)
+    );
+  });
+
+  return words.join(' ').replace(/\s{2,}/g, ' ').trim();
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -49,13 +72,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Tier 3: Extract words directly from raw buffer
+      // Tier 3: Extract clean words directly from raw buffer
       if (!extractedText || extractedText.trim().length < 15) {
-        const rawString = buffer.toString('utf-8');
-        const words = rawString.match(/[a-zA-Z0-9.,$%\-:\/]{3,}/g);
-        if (words && words.length > 5) {
-          extractedText = words.filter(w => !w.includes('Stream') && !w.includes('endobj')).join(' ');
-        }
+        extractedText = sanitizePdfText(buffer.toString('utf-8'));
+      } else {
+        extractedText = sanitizePdfText(extractedText);
       }
     } else {
       // Plain text, markdown, docx plain text fallback
