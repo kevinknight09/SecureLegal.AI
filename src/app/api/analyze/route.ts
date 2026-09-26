@@ -103,7 +103,7 @@ You MUST respond with valid JSON adhering EXACTLY to this structure:
 `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-lite',
+      model: 'gemini-3.5-flash-lite',
       contents: prompt,
       config: {
         responseMimeType: 'application/json'
