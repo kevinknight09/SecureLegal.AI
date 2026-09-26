@@ -24,28 +24,28 @@ export async function POST(req: NextRequest) {
 
     const ai = new GoogleGenAI({ apiKey });
 
+    // Ultra-fast comparison prompt (< 2s generation time)
     const prompt = `
-You are a Senior Corporate Attorney conducting a side-by-side contract comparison between two legal agreements.
+Compare two contracts side-by-side across 5 features: Liability & Caps, Termination Notice, Price Escalation, IP Rights & Data Ownership, Governing Law / Jurisdiction.
 
-Contract Document A:
+Doc A:
 """
-${docA.slice(0, 15000)}
-"""
-
-Contract Document B:
-"""
-${docB.slice(0, 15000)}
+${docA.slice(0, 3000)}
 """
 
-Analyze key differences across liability, termination notice, price escalation, IP rights, and governing law.
-Return a structured JSON response formatted as follows:
+Doc B:
+"""
+${docB.slice(0, 3000)}
+"""
+
+Return JSON with extremely brief answers (max 10 words per field):
 {
   "comparisons": [
     {
-      "feature": "<Feature Name e.g. Overall Risk Score>",
-      "valA": "<Description or value in Doc A>",
-      "valB": "<Description or value in Doc B>",
-      "winner": "<Which document is safer for the client e.g. 'Doc A (Safer)' or 'Doc B' or 'Equal'>"
+      "feature": "<Feature Name>",
+      "valA": "<Brief summary Doc A (max 10 words)>",
+      "valB": "<Brief summary Doc B (max 10 words)>",
+      "winner": "<'Doc A' | 'Doc B' | 'Equal'>"
     }
   ]
 }
@@ -55,7 +55,8 @@ Return a structured JSON response formatted as follows:
       model: 'gemini-3.5-flash-lite',
       contents: prompt,
       config: {
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        maxOutputTokens: 500
       }
     });
 

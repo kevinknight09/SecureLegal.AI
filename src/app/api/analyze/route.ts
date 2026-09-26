@@ -106,7 +106,8 @@ You MUST respond with valid JSON adhering EXACTLY to this structure:
       model: 'gemini-3.5-flash-lite',
       contents: prompt,
       config: {
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        maxOutputTokens: 1500
       }
     });
 

@@ -31,6 +31,12 @@ export default function Home() {
   const [compareB, setCompareB] = useState<string>(SAMPLE_CONTRACTS.lease.content);
   const [compareResult, setCompareResult] = useState<any>(null);
   const [isComparing, setIsComparing] = useState<boolean>(false);
+  const [isUploadingA, setIsUploadingA] = useState<boolean>(false);
+  const [isUploadingB, setIsUploadingB] = useState<boolean>(false);
+  const [uploadedNameA, setUploadedNameA] = useState<string | null>(null);
+  const [uploadedNameB, setUploadedNameB] = useState<string | null>(null);
+  const fileInputARef = useRef<HTMLInputElement>(null);
+  const fileInputBRef = useRef<HTMLInputElement>(null);
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; text: string; citation?: string; source?: string }[]>([
@@ -117,6 +123,50 @@ export default function Home() {
     }
   };
 
+  const handleFileUploadA = async (file: File) => {
+    if (!file) return;
+    setIsUploadingA(true);
+    setUploadedNameA(file.name);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/parse-document', { method: 'POST', body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        setCompareA(data.text);
+      } else {
+        alert('Could not parse Document A text.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error uploading Document A.');
+    } finally {
+      setIsUploadingA(false);
+    }
+  };
+
+  const handleFileUploadB = async (file: File) => {
+    if (!file) return;
+    setIsUploadingB(true);
+    setUploadedNameB(file.name);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/parse-document', { method: 'POST', body: formData });
+      if (res.ok) {
+        const data = await res.json();
+        setCompareB(data.text);
+      } else {
+        alert('Could not parse Document B text.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error uploading Document B.');
+    } finally {
+      setIsUploadingB(false);
+    }
+  };
+
   // Handle Chat Assistant Send
   const handleChatSend = async (queryText?: string) => {
     const q = queryText || chatInputText;
@@ -156,6 +206,7 @@ export default function Home() {
 
   // Handle Contract Comparison
   const handleRunComparison = async () => {
+    if (isComparing) return;
     setIsComparing(true);
     try {
       const res = await fetch('/api/compare', {
@@ -305,7 +356,7 @@ ${report.checklist.map(c => `- [ ] ${c.task} (Due: ${c.due}, Priority: ${c.statu
 
               {/* Sample Contracts Selector */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-400">Samples:</span>
+                <span className="text-xs font-medium text-slate-400">Presets:</span>
                 <div className="flex gap-2">
                   {Object.keys(SAMPLE_CONTRACTS).map(key => (
                     <button
@@ -600,26 +651,90 @@ ${report.checklist.map(c => `- [ ] ${c.task} (Due: ${c.due}, Priority: ${c.statu
               {/* Doc A */}
               <div className="glass-card p-5 space-y-3">
                 <div className="flex items-center justify-between font-semibold text-sm text-indigo-300 border-b border-white/10 pb-2">
-                  <span>Document A</span>
-                  <span className="text-xs text-slate-400">SaaS Agreement</span>
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-400" />
+                    <span>Document A</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="file" 
+                      ref={fileInputARef} 
+                      onChange={(e) => e.target.files?.[0] && handleFileUploadA(e.target.files[0])}
+                      accept=".pdf,.txt,.docx,.md"
+                      className="hidden" 
+                    />
+                    <button 
+                      onClick={() => fileInputARef.current?.click()}
+                      disabled={isUploadingA}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1 bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 rounded-lg text-indigo-300 font-medium transition-all"
+                    >
+                      {isUploadingA ? <RefreshCw className="w-3 h-3 animate-spin" /> : <UploadCloud className="w-3 h-3" />}
+                      {isUploadingA ? 'Parsing...' : 'Upload PDF/TXT'}
+                    </button>
+                  </div>
                 </div>
+
+                {uploadedNameA && (
+                  <div className="flex items-center justify-between p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-300">
+                    <div className="flex items-center gap-2 truncate">
+                      <FileCheck className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="truncate font-medium">{uploadedNameA}</span>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 bg-emerald-500/20 rounded">Parsed</span>
+                  </div>
+                )}
+
                 <textarea
                   value={compareA}
-                  onChange={(e) => setCompareA(e.target.value)}
-                  className="w-full h-48 p-3 bg-[#0D121E] border border-white/10 rounded-xl text-xs font-mono text-slate-300 focus:outline-none"
+                  onChange={(e) => { setCompareA(e.target.value); setUploadedNameA(null); }}
+                  placeholder="Paste Document A text or upload a PDF above..."
+                  className="w-full h-48 p-3 bg-[#0D121E] border border-white/10 rounded-xl text-xs font-mono text-slate-300 focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
               {/* Doc B */}
               <div className="glass-card p-5 space-y-3">
                 <div className="flex items-center justify-between font-semibold text-sm text-cyan-300 border-b border-white/10 pb-2">
-                  <span>Document B</span>
-                  <span className="text-xs text-slate-400">Commercial Lease</span>
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-cyan-400" />
+                    <span>Document B</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="file" 
+                      ref={fileInputBRef} 
+                      onChange={(e) => e.target.files?.[0] && handleFileUploadB(e.target.files[0])}
+                      accept=".pdf,.txt,.docx,.md"
+                      className="hidden" 
+                    />
+                    <button 
+                      onClick={() => fileInputBRef.current?.click()}
+                      disabled={isUploadingB}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 rounded-lg text-cyan-300 font-medium transition-all"
+                    >
+                      {isUploadingB ? <RefreshCw className="w-3 h-3 animate-spin" /> : <UploadCloud className="w-3 h-3" />}
+                      {isUploadingB ? 'Parsing...' : 'Upload PDF/TXT'}
+                    </button>
+                  </div>
                 </div>
+
+                {uploadedNameB && (
+                  <div className="flex items-center justify-between p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs text-emerald-300">
+                    <div className="flex items-center gap-2 truncate">
+                      <FileCheck className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="truncate font-medium">{uploadedNameB}</span>
+                    </div>
+                    <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 bg-emerald-500/20 rounded">Parsed</span>
+                  </div>
+                )}
+
                 <textarea
                   value={compareB}
-                  onChange={(e) => setCompareB(e.target.value)}
-                  className="w-full h-48 p-3 bg-[#0D121E] border border-white/10 rounded-xl text-xs font-mono text-slate-300 focus:outline-none"
+                  onChange={(e) => { setCompareB(e.target.value); setUploadedNameB(null); }}
+                  placeholder="Paste Document B text or upload a PDF above..."
+                  className="w-full h-48 p-3 bg-[#0D121E] border border-white/10 rounded-xl text-xs font-mono text-slate-300 focus:outline-none focus:border-cyan-500"
                 />
               </div>
             </div>

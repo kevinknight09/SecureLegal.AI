@@ -44,6 +44,11 @@ Thumbs.db
 # Vercel & Deployment
 .vercel
 
-# Temporary Files
+# Temporary Files & Demo Contracts (DO NOT COMMIT)
 *.tmp
 *.temp
+demo-contracts/
+sample-contracts/
+public/samples/
+*.pdf
+scripts/generate-sample-pdfs.js

@@ -25,20 +25,20 @@ export async function POST(req: NextRequest) {
     const ai = new GoogleGenAI({ apiKey });
 
     const prompt = `
-You are an expert Senior Legal Advisor AI assistant.
-Answer the user's question accurately based ON THE PROVIDED CONTRACT TEXT.
+You are a fast, concise Senior Legal Advisor AI assistant.
+Answer the user's question directly in 2-3 sentences based on the contract text.
 
 Contract Text:
 """
-${contractText.slice(0, 30000)}
+${contractText.slice(0, 6000)}
 """
 
 User Question: "${question}"
 
-Respond with JSON in this format:
+Respond with JSON adhering to:
 {
-  "answer": "<Direct, clear legal answer explaining the clause or rights in plain language. Use markdown bold for key numbers, dates, or terms>",
-  "citation": "<Relevant Section / Article title or verbatim clause line citation from the document>"
+  "answer": "<Concise 2-3 sentence legal answer using bold for key dates, caps, or entities>",
+  "citation": "<Relevant Section / Article title or verbatim clause title>"
 }
 `;
 
@@ -46,7 +46,8 @@ Respond with JSON in this format:
       model: 'gemini-3.5-flash-lite',
       contents: prompt,
       config: {
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        maxOutputTokens: 300
       }
     });
 
