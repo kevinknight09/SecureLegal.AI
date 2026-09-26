@@ -3,15 +3,16 @@ import { GoogleGenAI } from '@google/genai';
 import { legalEngine, ContractAnalysis } from '@/lib/legalEngine';
 
 export async function POST(req: NextRequest) {
+  let text = '';
   try {
     const body = await req.json();
-    const { text, userApiKey } = body;
+    text = body.text || '';
 
     if (!text || typeof text !== 'string' || text.trim().length === 0) {
       return NextResponse.json({ error: 'Legal document text is required' }, { status: 400 });
     }
 
-    const apiKey = userApiKey || process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       // Use dynamic NLP heuristic fallback engine on actual document text
@@ -102,7 +103,7 @@ You MUST respond with valid JSON adhering EXACTLY to this structure:
 `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash-lite',
       contents: prompt,
       config: {
         responseMimeType: 'application/json'
@@ -148,14 +149,14 @@ You MUST respond with valid JSON adhering EXACTLY to this structure:
     return NextResponse.json({ report, source: 'gemini' });
   } catch (err: unknown) {
     console.error('Gemini Legal Analysis Error:', err);
-    // Fall back gracefully to heuristic engine if API call fails
-    try {
-      const body = await req.json().catch(() => ({}));
-      if (body.text) {
-        const fallbackReport = legalEngine.analyzeDocument(body.text);
-        return NextResponse.json({ report: fallbackReport, source: 'heuristic_fallback', warning: 'Gemini API call failed, used heuristic engine' });
-      }
-    } catch (_) {}
+    if (text) {
+      const fallbackReport = legalEngine.analyzeDocument(text);
+      return NextResponse.json({ 
+        report: fallbackReport, 
+        source: 'heuristic_fallback', 
+        warning: 'Gemini API call failed or key was invalid. Using dynamic legal engine.' 
+      });
+    }
 
     return NextResponse.json({ error: 'Failed to analyze document with AI' }, { status: 500 });
   }

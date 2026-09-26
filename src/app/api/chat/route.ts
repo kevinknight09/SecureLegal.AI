@@ -3,15 +3,19 @@ import { GoogleGenAI } from '@google/genai';
 import { legalEngine } from '@/lib/legalEngine';
 
 export async function POST(req: NextRequest) {
+  let question = '';
+  let contractText = '';
+
   try {
     const body = await req.json();
-    const { question, contractText, userApiKey } = body;
+    question = body.question || '';
+    contractText = body.contractText || '';
 
     if (!question || !contractText) {
       return NextResponse.json({ error: 'Question and contract text are required' }, { status: 400 });
     }
 
-    const apiKey = userApiKey || process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       const res = legalEngine.answerQuestion(question, contractText);
@@ -39,7 +43,7 @@ Respond with JSON in this format:
 `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash-lite',
       contents: prompt,
       config: {
         responseMimeType: 'application/json'
@@ -55,14 +59,10 @@ Respond with JSON in this format:
     });
   } catch (err) {
     console.error('Gemini Legal Q&A Error:', err);
-    // Fall back to heuristic answer engine
-    try {
-      const body = await req.json().catch(() => ({}));
-      if (body.question && body.contractText) {
-        const fallback = legalEngine.answerQuestion(body.question, body.contractText);
-        return NextResponse.json({ answer: fallback.answer, citation: fallback.citation, source: 'heuristic' });
-      }
-    } catch (_) {}
+    if (question && contractText) {
+      const fallback = legalEngine.answerQuestion(question, contractText);
+      return NextResponse.json({ answer: fallback.answer, citation: fallback.citation, source: 'heuristic' });
+    }
 
     return NextResponse.json({ error: 'Failed to process question' }, { status: 500 });
   }

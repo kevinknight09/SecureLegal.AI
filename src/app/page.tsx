@@ -289,7 +289,7 @@ ${report.checklist.map(c => `- [ ] ${c.task} (Due: ${c.due}, Priority: ${c.statu
           </div>
           {analysisSource && (
             <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-white/10 border border-white/10 text-cyan-300">
-              <Layers className="w-3 h-3" /> Engine: {analysisSource === 'gemini' ? 'Gemini 2.5 Flash API' : 'Dynamic Legal NLP'}
+              <Layers className="w-3 h-3" /> Engine: {analysisSource === 'gemini' ? 'Gemini 3.1 Flash Lite API' : 'Dynamic Legal NLP'}
             </span>
           )}
         </div>

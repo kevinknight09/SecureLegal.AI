@@ -3,15 +3,19 @@ import { GoogleGenAI } from '@google/genai';
 import { legalEngine } from '@/lib/legalEngine';
 
 export async function POST(req: NextRequest) {
+  let docA = '';
+  let docB = '';
+
   try {
     const body = await req.json();
-    const { docA, docB, userApiKey } = body;
+    docA = body.docA || '';
+    docB = body.docB || '';
 
     if (!docA || !docB) {
       return NextResponse.json({ error: 'Two contract texts are required for comparison' }, { status: 400 });
     }
 
-    const apiKey = userApiKey || process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       const res = legalEngine.compareContracts(docA, docB);
@@ -48,7 +52,7 @@ Return a structured JSON response formatted as follows:
 `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-2.0-flash-lite',
       contents: prompt,
       config: {
         responseMimeType: 'application/json'
@@ -69,13 +73,10 @@ Return a structured JSON response formatted as follows:
     });
   } catch (err) {
     console.error('Gemini Contract Compare Error:', err);
-    try {
-      const body = await req.json().catch(() => ({}));
-      if (body.docA && body.docB) {
-        const fallback = legalEngine.compareContracts(body.docA, body.docB);
-        return NextResponse.json({ comparison: fallback, source: 'heuristic' });
-      }
-    } catch (_) {}
+    if (docA && docB) {
+      const fallback = legalEngine.compareContracts(docA, docB);
+      return NextResponse.json({ comparison: fallback, source: 'heuristic' });
+    }
 
     return NextResponse.json({ error: 'Failed to compare contracts' }, { status: 500 });
   }
