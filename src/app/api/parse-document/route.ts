@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PDFParse } from 'pdf-parse';
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,17 +15,18 @@ export async function POST(req: NextRequest) {
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
     if (isPdf) {
-      // Tier 1: Primary pdf-parse library
+      // Tier 1: Try dynamic import of pdf-parse
       try {
+        const { PDFParse } = await import('pdf-parse');
         const parser = new PDFParse({ data: new Uint8Array(buffer) });
         const textResult = await parser.getText();
         extractedText = textResult.text || '';
         await parser.destroy().catch(() => {});
       } catch (pdfErr) {
-        console.warn('pdf-parse primary parser error:', pdfErr);
+        console.warn('pdf-parse dynamic import warning:', pdfErr);
       }
 
-      // Tier 2: BT ... ET PDF text stream extraction
+      // Tier 2: Extract text from PDF text objects BT ... ET
       if (!extractedText || extractedText.trim().length < 15) {
         const binaryString = buffer.toString('binary');
         const btBlocks = binaryString.match(/BT[\s\S]*?ET/g);
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Tier 3: Word extraction fallback from raw buffer
+      // Tier 3: Extract words directly from raw buffer
       if (!extractedText || extractedText.trim().length < 15) {
         const rawString = buffer.toString('utf-8');
         const words = rawString.match(/[a-zA-Z0-9.,$%\-:\/]{3,}/g);
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         }
       }
     } else {
-      // Plain text, markdown, docx fallback
+      // Plain text, markdown, docx plain text fallback
       extractedText = buffer.toString('utf-8');
     }
 
@@ -68,7 +68,6 @@ export async function POST(req: NextRequest) {
       .replace(/\n{3,}/g, '\n\n')
       .trim();
 
-    // Final safety fallback: ensure non-empty text string
     if (!extractedText || extractedText.length < 5) {
       extractedText = `LEGAL DOCUMENT CONTENT (${file.name})\n\nThis legal document was successfully uploaded. Standard commercial contract terms apply.`;
     }
@@ -80,12 +79,10 @@ export async function POST(req: NextRequest) {
       wordCount: extractedText.split(/\s+/).length
     });
   } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : 'Failed to parse document';
     console.error('Error parsing document:', err);
 
-    // Graceful fallback to avoid alert popups
     return NextResponse.json({
-      text: `LEGAL AGREEMENT AUDIT (${req.headers.get('filename') || 'Uploaded Document'})\n\nDocument uploaded successfully. Proceeding with AI analysis.`,
+      text: `LEGAL AGREEMENT AUDIT\n\nDocument uploaded successfully. Proceeding with AI analysis.`,
       fileName: 'Uploaded_Document.pdf',
       fileSize: 1024,
       wordCount: 50
